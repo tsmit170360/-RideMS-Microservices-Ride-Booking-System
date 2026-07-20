@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 
-
-const userSchema = new mongoose.Schema({
+const captainSchema = new mongoose.Schema({
     name: {
         type: String,
         required: true
@@ -20,7 +19,21 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
-})
+    vehicle: {
+        type: {
+            type: String,
+            enum: ['cab', 'auto', 'bike'],
+            required: true
+        },
+        plate: {
+            type: String,
+            required: true
+        },
+        color: {
+            type: String,
+            required: true
+        }
+    }
+});
 
-
-module.exports = mongoose.model('captain', userSchema);
+module.exports = mongoose.model('captain', captainSchema);

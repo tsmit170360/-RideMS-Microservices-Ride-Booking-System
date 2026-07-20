@@ -5,15 +5,15 @@ const blacklisttokenModel = require('../models/blacklisttoken.model');
 
 module.exports.captainAuth = async (req, res, next) => {
     try {
-        const token = req.cookies.token || req.headers.authorization.split(' ')[ 1 ];
+        const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
 
         if (!token) {
             return res.status(401).json({ message: 'Unauthorized' });
         }
 
-        const isBlacklisted = await blacklisttokenModel.find({ token });
+        const isBlacklisted = await blacklisttokenModel.findOne({ token });
 
-        if (isBlacklisted.length) {
+        if (isBlacklisted) {
             return res.status(401).json({ message: 'Unauthorized' });
         }
 
@@ -26,9 +26,10 @@ module.exports.captainAuth = async (req, res, next) => {
         }
 
         req.captain = captain;
-
         next();
+
     } catch (error) {
+        console.error('captainAuth error:', error.message);
         res.status(500).json({ message: error.message });
     }
 }
