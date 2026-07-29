@@ -1,0 +1,46 @@
+{
+  "family": "ridems-gateway",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID_PLACEHOLDER:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID_PLACEHOLDER:role/ridems-task-role",
+  "containerDefinitions": [
+    {
+      "name": "gateway",
+      "image": "ACCOUNT_ID_PLACEHOLDER.dkr.ecr.REGION_PLACEHOLDER.amazonaws.com/ridems/gateway:IMAGE_TAG_PLACEHOLDER",
+      "essential": true,
+      "portMappings": [
+        { "containerPort": 3000, "protocol": "tcp" }
+      ],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "PORT", "value": "3000" },
+        { "name": "USER_SERVICE_URL", "value": "http://user.ridems.local:3001" },
+        { "name": "CAPTAIN_SERVICE_URL", "value": "http://captain.ridems.local:3002" },
+        { "name": "RIDE_SERVICE_URL", "value": "http://ride.ridems.local:3003" },
+        { "name": "CORS_ORIGIN", "value": "https://CHANGE_ME_FRONTEND_DOMAIN" }
+      ],
+      "secrets": [
+        { "name": "JWT_SECRET", "valueFrom": "arn:aws:secretsmanager:REGION_PLACEHOLDER:ACCOUNT_ID_PLACEHOLDER:secret:ridems/jwt-secret" }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 20
+      },
+      "stopTimeout": 30,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/ridems/gateway",
+          "awslogs-region": "REGION_PLACEHOLDER",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

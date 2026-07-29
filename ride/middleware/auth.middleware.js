@@ -11,17 +11,14 @@ let captainConn = null;
 
 const getUserConn = () => {
     if (!userConn) {
-        // Replace Ride-ride-service with Ride-user-service in the MONGO_URL
-        const userDbUrl = process.env.MONGO_URL.replace('Ride-ride-service', 'Ride-user-service');
-        userConn = mongoose.createConnection(userDbUrl);
+        userConn = mongoose.createConnection(process.env.USER_MONGO_URL);
     }
     return userConn;
 };
 
 const getCaptainConn = () => {
     if (!captainConn) {
-        const captainDbUrl = process.env.MONGO_URL.replace('Ride-ride-service', 'Ride-captain-service');
-        captainConn = mongoose.createConnection(captainDbUrl);
+        captainConn = mongoose.createConnection(process.env.CAPTAIN_MONGO_URL);
     }
     return captainConn;
 };

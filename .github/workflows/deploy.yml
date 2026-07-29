@@ -1,0 +1,148 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ECS_CLUSTER: ridems
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [gateway, user, captain, ride]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ${{ matrix.service }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.service }}
+        run: npm ci
+
+      - name: Run tests
+        working-directory: ${{ matrix.service }}
+        run: npm test --if-present
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [gateway, user, captain, ride]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.service }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.ecr-login.outputs.registry }}/ridems/${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  build-frontend:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            VITE_API_URL=${{ secrets.VITE_API_URL }}
+          tags: ${{ steps.ecr-login.outputs.registry }}/ridems/frontend:${{ github.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  deploy:
+    needs: [build, build-frontend]
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      matrix:
+        service: [user, captain, ride, gateway]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Get AWS account ID
+        id: account
+        run: echo "id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: Render base task definition
+        id: base-task-def
+        run: |
+          sed \
+            -e "s/ACCOUNT_ID_PLACEHOLDER/${{ steps.account.outputs.id }}/g" \
+            -e "s/REGION_PLACEHOLDER/${{ env.AWS_REGION }}/g" \
+            -e "s/IMAGE_TAG_PLACEHOLDER/${{ github.sha }}/g" \
+            aws/ecs-task-definitions/${{ matrix.service }}.json > rendered-task-def.json
+          echo "file=rendered-task-def.json" >> "$GITHUB_OUTPUT"
+
+      - name: Fill in new image
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ steps.base-task-def.outputs.file }}
+          container-name: ${{ matrix.service }}
+          image: ${{ steps.ecr-login.outputs.registry }}/ridems/${{ matrix.service }}:${{ github.sha }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-def.outputs.task-definition }}
+          service: ridems-${{ matrix.service }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
