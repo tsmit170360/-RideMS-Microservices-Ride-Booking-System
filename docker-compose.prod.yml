@@ -1,0 +1,87 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes: [mongo-data:/data/db]
+    healthcheck:
+      test: ["CMD","mongosh","--quiet","--eval","db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD","rabbitmq-diagnostics","-q","ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  user:
+    build: ./user
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      JWT_SECRET: ${JWT_SECRET}
+      MONGO_URL: mongodb://mongo:27017/Ride-user-service
+      RABBIT_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      mongo: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  captain:
+    build: ./captain
+    restart: unless-stopped
+    environment:
+      PORT: 3002
+      JWT_SECRET: ${JWT_SECRET}
+      MONGO_URL: mongodb://mongo:27017/Ride-captain-service
+      RABBIT_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      mongo: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  ride:
+    build: ./ride
+    restart: unless-stopped
+    environment:
+      PORT: 3003
+      JWT_SECRET: ${JWT_SECRET}
+      MONGO_URL: mongodb://mongo:27017/Ride-ride-service
+      RABBIT_URL: amqp://guest:guest@rabbitmq:5672
+      BASE_URL: http://user:3001
+      USER_MONGO_URL: mongodb://mongo:27017/Ride-user-service
+      CAPTAIN_MONGO_URL: mongodb://mongo:27017/Ride-captain-service
+    depends_on:
+      mongo: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+  gateway:
+    build: ./gateway
+    restart: unless-stopped
+    ports: ["3000:3000"]
+    environment:
+      PORT: 3000
+      USER_SERVICE_URL: http://user:3001
+      CAPTAIN_SERVICE_URL: http://captain:3002
+      RIDE_SERVICE_URL: http://ride:3003
+      CORS_ORIGIN: http://${PUBLIC_HOST}
+    depends_on:
+      user: {condition: service_healthy}
+      captain: {condition: service_healthy}
+      ride: {condition: service_healthy}
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://${PUBLIC_HOST}:3000
+    restart: unless-stopped
+    ports: ["80:80"]
+    depends_on: [gateway]
+
+volumes:
+  mongo-data:
