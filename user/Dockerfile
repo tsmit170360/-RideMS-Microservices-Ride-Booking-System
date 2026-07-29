@@ -4,6 +4,18 @@ RUN apk add --no-cache python3 make g++
 COPY package*.json ./
 RUN npm ci --omit=dev
 
+FROM node:20-alpine AS dev
+WORKDIR /app
+RUN apk add --no-cache python3 make g++
+ENV NODE_ENV=development
+COPY package*.json ./
+RUN npm ci
+COPY . .
+EXPOSE 3001
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["npm", "run", "dev"]
+
 FROM node:20-alpine AS runner
 RUN apk add --no-cache tini
 WORKDIR /app

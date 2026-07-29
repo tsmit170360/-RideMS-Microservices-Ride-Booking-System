@@ -1,0 +1,40 @@
+services:
+  user:
+    build:
+      context: ./user
+      target: dev
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./user:/app
+      - /app/node_modules
+
+  captain:
+    build:
+      context: ./captain
+      target: dev
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./captain:/app
+      - /app/node_modules
+
+  ride:
+    build:
+      context: ./ride
+      target: dev
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./ride:/app
+      - /app/node_modules
+
+  gateway:
+    build:
+      context: ./gateway
+      target: dev
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./gateway:/app
+      - /app/node_modules

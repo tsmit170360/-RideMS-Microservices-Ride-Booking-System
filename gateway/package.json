@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "app.js",
   "scripts": {
-    "test": "echo \"no tests yet\" && exit 0"
+    "test": "echo \"no tests yet\" && exit 0",
+    "dev": "nodemon --legacy-watch app.js"
   },
   "keywords": [],
   "author": "",
@@ -13,5 +14,8 @@
     "cors": "^2.8.6",
     "express": "^4.21.1",
     "express-http-proxy": "^2.1.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }
