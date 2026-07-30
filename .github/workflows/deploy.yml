@@ -1,5 +1,11 @@
 name: Deploy
 
+# AWS build/push/deploy jobs below are gated behind `workflow_dispatch` until
+# the one-time AWS setup in aws/README.md is done (OIDC role, ECR repos,
+# AWS_ROLE_ARN + VITE_API_URL repo secrets). They will not run on push to
+# main, only when manually triggered via Actions -> Deploy -> Run workflow.
+# Once ready to enable push-to-deploy, delete the `if:` line on each of the
+# build, build-frontend, and deploy jobs below.
 on:
   push:
     branches: [main]
@@ -38,6 +44,7 @@ jobs:
 
   build:
     needs: test
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -69,6 +76,7 @@ jobs:
 
   build-frontend:
     needs: test
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -99,6 +107,7 @@ jobs:
 
   deploy:
     needs: [build, build-frontend]
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 1
