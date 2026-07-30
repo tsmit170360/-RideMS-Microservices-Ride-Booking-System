@@ -38,3 +38,15 @@ services:
     volumes:
       - ./gateway:/app
       - /app/node_modules
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    environment:
+      DOCKER: "true"
+    ports: !override
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules

@@ -136,14 +136,13 @@ micro-services/
 
 ## Prerequisites
 
-- Node.js 18+
-- A **MongoDB Atlas** account — free M0 cluster
-- A **CloudAMQP** account — free Little Lemur plan
+- **Docker Desktop** (or Docker Engine + Compose v2) — this is the only supported way to run the project now
 - No Google Maps key, no paid APIs needed
+- MongoDB and RabbitMQ run as containers (`mongo:7`, `rabbitmq:3.13-management-alpine`) — no Atlas/CloudAMQP account required for local dev
 
 ---
 
-## Setup
+## Setup (Docker — recommended)
 
 ### 1. Clone the repository
 
@@ -152,7 +151,73 @@ git clone https://github.com/yourusername/micro-services.git
 cd micro-services
 ```
 
-### 2. Set up MongoDB Atlas
+### 2. Create the root `.env`
+
+Only one `.env` file is needed, at the repo root (next to `docker-compose.yml`):
+
+```bash
+cp .env.example .env
+```
+
+Fill in:
+```env
+JWT_SECRET=some-long-random-string
+```
+(`AWS_ACCOUNT_ID` / `AWS_REGION` are only needed for the AWS deploy scripts in `aws/`, not for local Docker.)
+
+> The `user/.env`, `captain/.env`, `ride/.env` files (if present) are **dev-only, non-Docker leftovers** — see [Do the per-service `.env` files matter?](#do-the-per-service-env-files-matter) below. Docker never reads them.
+
+### 3. Start everything
+
+**Development** (hot-reload via nodemon/Vite, source mounted into containers):
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
+- Frontend: http://localhost:5173 (Vite dev server, HMR)
+- Gateway: http://localhost:3000
+- RabbitMQ management UI: http://localhost:15672 (guest/guest)
+- Mongo: localhost:27017
+
+**Production-like local run** (built nginx frontend, no source mounts):
+```bash
+docker compose up --build
+```
+- Frontend: http://localhost:5173 (static build served by nginx)
+- Gateway: http://localhost:3000
+
+Stop with `docker compose down` (add `-v` to also wipe the Mongo volume).
+
+### 4. Verify it's working
+
+```bash
+curl http://localhost:3000/health          # gateway
+curl -X POST http://localhost:3000/user/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Test User","email":"test@example.com","password":"Test1234!"}'
+```
+A `200` with a JWT `token` back means gateway → user service → Mongo → RabbitMQ are all wired correctly (this was verified against a live run of this exact compose setup).
+
+---
+
+## Do the per-service `.env` files matter?
+
+**No — and they won't conflict.** Two independent things keep them harmless:
+
+1. Every service's `.dockerignore` excludes `.env` and `.env.*` from the build context, so those files are **never copied into the image** in the first place.
+2. Even where `dotenv.config()` runs in code, `dotenv` **never overwrites a variable that's already set** in `process.env`. Docker Compose injects `MONGO_URL`, `RABBIT_URL`, `JWT_SECRET`, etc. directly as container environment variables (see `docker-compose.yml`), so those always win.
+
+So if `user/.env`, `captain/.env`, or `ride/.env` still contain an old MongoDB Atlas / CloudAMQP URI from a previous non-Docker copy of this project, it is simply dead weight inside the container — Docker Compose's `mongodb://mongo:27017/...` and `amqp://guest:guest@rabbitmq:5672` always take precedence. You don't need to delete or edit them for Docker to work, though you can delete them if you no longer run the services with plain `node server.js`.
+
+The only place a "real" Mongo URI matters is production: `docker-compose.prod.yml` currently points at the bundled `mongo` container too. For a managed database (Atlas, DocumentDB, etc.) in production, override `MONGO_URL` per service via a prod env file or Secrets Manager (the `aws/create-secrets.sh` script already does this for the ECS path) rather than editing the service `.env` files.
+
+---
+
+## Manual / non-Docker setup (legacy, not recommended)
+
+<details>
+<summary>Expand for the old MongoDB Atlas + CloudAMQP + 5-terminal workflow</summary>
+
+### 1. Set up MongoDB Atlas
 
 1. Go to [mongodb.com/atlas](https://www.mongodb.com/atlas) and create a free M0 cluster
 2. Create a database user under **Security → Database Access**
@@ -167,13 +232,13 @@ You need 3 databases — all on the same cluster, just different names in the UR
 ```
 Atlas creates each database automatically on first write.
 
-### 3. Set up RabbitMQ
+### 2. Set up RabbitMQ
 
 1. Go to [cloudamqp.com](https://www.cloudamqp.com) and sign up
 2. Create a free **Little Lemur** instance
 3. Copy the **AMQP URL** (starts with `amqps://`)
 
-### 4. Install dependencies
+### 3. Install dependencies
 
 ```bash
 cd gateway  && npm install && cd ..
@@ -183,7 +248,7 @@ cd ride     && npm install && cd ..
 cd frontend && npm install && cd ..
 ```
 
-### 5. Create .env files
+### 4. Create .env files
 
 **`user/.env`**
 ```env
@@ -209,44 +274,37 @@ RABBIT_URL=amqps://your:credentials@your.cloudamqp.url/vhost
 
 > ⚠️ `JWT_SECRET` must be **identical** in all three services — tokens created by one service are verified by another.
 
-> ℹ️ Gateway has **no `.env` file** — its ports are hardcoded in `app.js`.
-
-### 6. Start all services
+### 5. Start all services
 
 Open **5 terminals**. Start in this order and wait for `Connected to DB` before moving to the next:
 
 ```bash
 # Terminal 1
 cd user && node server.js
-# Expected:
-# User service is running on port 3001
-# Connected to RabbitMQ
-# Connected to DB
 
 # Terminal 2
 cd captain && node server.js
-# Expected:
-# captain service is running on port 3002
-# Connected to RabbitMQ
-# Connected to DB
 
 # Terminal 3
 cd ride && node server.js
-# Expected:
-# ride service is running on port 3003
-# Connected to RabbitMQ
-# Connected to DB
 
 # Terminal 4 — start AFTER all 3 services are up
 cd gateway && node app.js
-# Expected:
-# Gateway server listening on port 3000
 
 # Terminal 5
 cd frontend && npm run dev
-# Expected:
-# Local: http://localhost:5173
 ```
+
+</details>
+
+---
+
+## Deploying to production
+
+Two options are already wired up in this repo:
+
+- **`docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`** on a single VM/host — set `PUBLIC_HOST` and `JWT_SECRET` in the root `.env`, put a reverse proxy/TLS terminator (e.g. Caddy, nginx, Traefik) in front of ports 80/3000 if exposing publicly.
+- **AWS ECS Fargate** — full pipeline already implemented in `aws/` (ECR, Secrets Manager, IAM, task definitions) and `.github/workflows/deploy.yml` (build/push/deploy on every push to `main` via OIDC). See `aws/README.md` for the one-time setup steps.
 
 ---
 
