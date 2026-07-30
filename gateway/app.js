@@ -16,6 +16,16 @@ const corsOptions = {
     allowedHeaders: ['Content-Type', 'Authorization']
 }
 
+// Recent Chrome versions require this on the preflight response before
+// allowing a cross-origin request to reach a localhost/private-network
+// target (Private Network Access). Harmless for browsers that don't ask.
+app.use((req, res, next) => {
+    if (req.headers['access-control-request-private-network']) {
+        res.setHeader('Access-Control-Allow-Private-Network', 'true')
+    }
+    next()
+})
+
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
 
